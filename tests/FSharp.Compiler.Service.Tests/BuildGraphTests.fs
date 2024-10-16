@@ -23,7 +23,7 @@ module BuildGraphTests =
         }), WeakReference(o)
 
     [<Fact>]
-    let ``Intialization of graph node should not have a computed value``() =
+    let ``Initialization of graph node should not have a computed value``() =
         let node = GraphNode(async { return 1 })
         Assert.shouldBeTrue(node.TryPeekValue().IsNone)
         Assert.shouldBeFalse(node.HasValue)
@@ -385,22 +385,17 @@ module BuildGraphTests =
 
             for i in 1 .. 300 do
                 async {
-                    Interlocked.Increment(&count) |> ignore
-                    errorR (ExampleException $"{i}")
+                    errorR (ExampleException $"{Interlocked.Increment(&count)}")
+                    error (ExampleException $"{Interlocked.Increment(&count)}")
                 }
         ]
 
-        let run =
-            tasks |> MultipleDiagnosticsLoggers.Parallel |> Async.Catch |> Async.StartAsTask
+        task {
+            do! tasks |> MultipleDiagnosticsLoggers.Parallel |> Async.Catch |> Async.Ignore
 
-        Assert.True(
-            run.Wait(1000),
-            "MultipleDiagnosticsLoggers.Parallel did not finish."
-        )
-
-        // Diagnostics from all started tasks should be collected despite the exception.
-        errorCountShouldBe count
-
+            // Diagnostics from all started tasks should be collected despite the exception.
+            errorCountShouldBe count
+        }
 
     [<Fact>]
     let ``AsyncLocal diagnostics context flows correctly`` () =
@@ -524,9 +519,9 @@ module BuildGraphTests =
         }
         |> Async.RunImmediate
 
-        // Synchronus code will affect current context:
+        // Synchronous code will affect current context:
 
-        // This is synchrouous, caller's context is affected
+        // This is synchronous, caller's context is affected
         async {
             SetThreadDiagnosticsLoggerNoUnwind DiscardErrorsLogger
             do! Async.SwitchToNewThread()

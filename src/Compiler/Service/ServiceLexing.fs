@@ -392,6 +392,7 @@ module internal TokenClassifications =
         | HIGH_PRECEDENCE_PAREN_APP
         | FIXED
         | HIGH_PRECEDENCE_BRACK_APP
+        | BAR_JUST_BEFORE_NULL
         | TYPE_COMING_SOON
         | TYPE_IS_HERE
         | MODULE_COMING_SOON
@@ -438,7 +439,7 @@ module internal TestExpose =
 /// many allocated objects.
 ///
 /// The encoding is lossy so some incremental lexing scenarios such as deeply nested #if
-/// or accurate error messages from lexing for mismtached #if are not supported.
+/// or accurate error messages from lexing for mismatched #if are not supported.
 [<Struct; CustomEquality; NoComparison>]
 type FSharpTokenizerLexState =
     {
@@ -733,7 +734,7 @@ module internal LexerStateEncoding =
             )
         | LexCont.EndLine(ifdefs, stringNest, econt) ->
             match econt with
-            | LexerEndlineContinuation.Skip(n, m) ->
+            | LexerEndlineContinuation.IfdefSkip(n, m) ->
                 encodeLexCont (
                     FSharpTokenizerColorState.EndLineThenSkip,
                     int64 n,
@@ -833,7 +834,7 @@ module internal LexerStateEncoding =
             | FSharpTokenizerColorState.ExtendedInterpolatedString ->
                 LexCont.String(ifdefs, stringNest, LexerStringStyle.ExtendedInterpolated, stringKind, delimLen, mkRange "file" p1 p1)
             | FSharpTokenizerColorState.EndLineThenSkip ->
-                LexCont.EndLine(ifdefs, stringNest, LexerEndlineContinuation.Skip(n1, mkRange "file" p1 p1))
+                LexCont.EndLine(ifdefs, stringNest, LexerEndlineContinuation.IfdefSkip(n1, mkRange "file" p1 p1))
             | FSharpTokenizerColorState.EndLineThenToken -> LexCont.EndLine(ifdefs, stringNest, LexerEndlineContinuation.Token)
             | _ -> LexCont.Token([], stringNest)
 

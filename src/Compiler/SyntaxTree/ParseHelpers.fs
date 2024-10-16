@@ -43,7 +43,11 @@ let posOfLexPosition (p: Position) = mkPos p.Line p.Column
 
 /// Get an F# compiler range from a lexer range
 let mkSynRange (p1: Position) (p2: Position) =
-    mkFileIndexRange p1.FileIndex (posOfLexPosition p1) (posOfLexPosition p2)
+    if p1.FileIndex = p2.FileIndex then
+        mkFileIndexRange p1.FileIndex (posOfLexPosition p1) (posOfLexPosition p2)
+    else
+        // This means we had a #line directive in the middle of this syntax element.
+        mkFileIndexRange p1.FileIndex (posOfLexPosition p1) (posOfLexPosition (p1.ShiftColumnBy 1))
 
 type LexBuffer<'Char> with
 
@@ -75,7 +79,7 @@ type IParseState with
             match bls.TryGetValue key with
             | true, gen -> gen
             | _ ->
-                let gen = box (SynArgNameGenerator())
+                let gen = !!(box (SynArgNameGenerator()))
                 bls[key] <- gen
                 gen
 
@@ -97,14 +101,14 @@ module LexbufLocalXmlDocStore =
         match lexbuf.BufferLocalStore.TryGetValue xmlDocKey with
         | true, collector -> collector
         | _ ->
-            let collector = box (XmlDocCollector())
+            let collector = !!(box (XmlDocCollector()))
             lexbuf.BufferLocalStore[xmlDocKey] <- collector
             collector
 
         |> unbox<XmlDocCollector>
 
     let ClearXmlDoc (lexbuf: Lexbuf) =
-        lexbuf.BufferLocalStore[xmlDocKey] <- box (XmlDocCollector())
+        lexbuf.BufferLocalStore[xmlDocKey] <- box (XmlDocCollector()) |> Unchecked.nonNull
 
     /// Called from the lexer to save a single line of XML doc comment.
     let SaveXmlDocLine (lexbuf: Lexbuf, lineText, range: range) =
@@ -145,7 +149,7 @@ module LexbufLocalXmlDocStore =
         collector.CheckInvalidXmlDocPositions()
 
 //------------------------------------------------------------------------
-// Parsing/lexing: status of #if/#endif processing in lexing, used for continutations
+// Parsing/lexing: status of #if/#endif processing in lexing, used for continuations
 // for whitespace tokens in parser specification.
 //------------------------------------------------------------------------
 
@@ -161,9 +165,10 @@ type LexerIfdefStack = LexerIfdefStackEntries
 /// Specifies how the 'endline' function in the lexer should continue after
 /// it reaches end of line or eof. The options are to continue with 'token' function
 /// or to continue with 'skip' function.
+[<RequireQualifiedAccess>]
 type LexerEndlineContinuation =
     | Token
-    | Skip of int * range: range
+    | IfdefSkip of int * range: range
 
 type LexerIfdefExpression =
     | IfdefAnd of LexerIfdefExpression * LexerIfdefExpression
@@ -188,7 +193,7 @@ module LexbufIfdefStore =
         match lexbuf.BufferLocalStore.TryGetValue ifDefKey with
         | true, store -> store
         | _ ->
-            let store = box (ResizeArray<ConditionalDirectiveTrivia>())
+            let store = !!(box (ResizeArray<ConditionalDirectiveTrivia>()))
             lexbuf.BufferLocalStore[ifDefKey] <- store
             store
         |> unbox<ResizeArray<ConditionalDirectiveTrivia>>
@@ -237,7 +242,7 @@ module LexbufCommentStore =
         match lexbuf.BufferLocalStore.TryGetValue commentKey with
         | true, store -> store
         | _ ->
-            let store = box (ResizeArray<CommentTrivia>())
+            let store = !!(box (ResizeArray<CommentTrivia>()))
             lexbuf.BufferLocalStore[commentKey] <- store
             store
         |> unbox<ResizeArray<CommentTrivia>>
@@ -894,7 +899,7 @@ let mkRecdField (lidwd: SynLongIdent) = lidwd, true
 // Used for 'do expr' in a class.
 let mkSynDoBinding (vis: SynAccess option, mDo, expr, m) =
     match vis with
-    | Some vis -> errorR (Error(FSComp.SR.parsDoCannotHaveVisibilityDeclarations (vis.ToString()), m))
+    | Some vis -> errorR (Error(FSComp.SR.parsDoCannotHaveVisibilityDeclarations (vis |> string), m))
     | None -> ()
 
     SynBinding(
@@ -963,7 +968,7 @@ let checkEndOfFileError t =
 
     | LexCont.MLOnly(_, _, m) -> reportParseErrorAt m (FSComp.SR.parsEofInIfOcaml ())
 
-    | LexCont.EndLine(_, _, LexerEndlineContinuation.Skip(_, m)) -> reportParseErrorAt m (FSComp.SR.parsEofInDirective ())
+    | LexCont.EndLine(_, _, LexerEndlineContinuation.IfdefSkip(_, m)) -> reportParseErrorAt m (FSComp.SR.parsEofInDirective ())
 
     | LexCont.EndLine(endifs, nesting, LexerEndlineContinuation.Token)
     | LexCont.Token(endifs, nesting) ->
@@ -1045,7 +1050,22 @@ let mkLocalBindings (mWhole, BindingSetPreAttrs(_, isRec, isUse, declsPreAttrs, 
             else
                 Some mIn)
 
-    SynExpr.LetOrUse(isRec, isUse, decls, body, mWhole, { InKeyword = mIn })
+    let mLetOrUse =
+        match decls with
+        | SynBinding(trivia = trivia) :: _ -> trivia.LeadingKeyword.Range
+        | _ -> Range.Zero
+
+    SynExpr.LetOrUse(
+        isRec,
+        isUse,
+        decls,
+        body,
+        mWhole,
+        {
+            LetOrUseKeyword = mLetOrUse
+            InKeyword = mIn
+        }
+    )
 
 let mkDefnBindings (mWhole, BindingSetPreAttrs(_, isRec, isUse, declsPreAttrs, _bindingSetRange), attrs, vis, attrsm) =
     if isUse then
@@ -1101,7 +1121,8 @@ let mkSynUnionCase attributes (access: SynAccess option) id kind mDecl (xmlDoc, 
     SynUnionCase(attributes, id, kind, xmlDoc, None, mDecl, trivia)
 
 let mkAutoPropDefn mVal access ident typ mEquals (expr: SynExpr) accessors xmlDoc attribs flags rangeStart =
-    let mWith, (getSet, getSetOpt) = accessors
+    let mWith, (getSet, getSetOpt, getterAccess, setterAccess) = accessors
+    let access = SynValSigAccess.GetSet(access, getterAccess, setterAccess)
 
     let memberRange =
         match getSetOpt with

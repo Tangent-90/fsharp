@@ -17,7 +17,7 @@ open FSharp.Compiler.Text.Position
 open FSharp.Compiler.Text.Range
 
 module SourceFileImpl =
-    let IsSignatureFile file =
+    let IsSignatureFile (file: string) =
         let ext = Path.GetExtension file
         0 = String.Compare(".fsi", ext, StringComparison.OrdinalIgnoreCase)
 
@@ -656,6 +656,7 @@ module ParsedInput =
             | SynTypeConstraint.WhereTyparIsReferenceType(t, _) -> walkTypar t
             | SynTypeConstraint.WhereTyparIsUnmanaged(t, _) -> walkTypar t
             | SynTypeConstraint.WhereTyparSupportsNull(t, _) -> walkTypar t
+            | SynTypeConstraint.WhereTyparNotSupportsNull(genericName = t) -> walkTypar t
             | SynTypeConstraint.WhereTyparIsComparable(t, _) -> walkTypar t
             | SynTypeConstraint.WhereTyparIsEquatable(t, _) -> walkTypar t
             | SynTypeConstraint.WhereTyparSubtypeOfType(t, ty, _) -> walkTypar t |> Option.orElseWith (fun () -> walkType ty)
@@ -719,6 +720,7 @@ module ParsedInput =
             | SynType.Array(_, t, _) -> walkType t
             | SynType.Fun(argType = t1; returnType = t2) -> walkType t1 |> Option.orElseWith (fun () -> walkType t2)
             | SynType.WithGlobalConstraints(t, _, _) -> walkType t
+            | SynType.WithNull(innerType = t)
             | SynType.HashConstraint(t, _) -> walkType t
             | SynType.Or(t1, t2, _, _) -> walkType t1 |> Option.orElseWith (fun () -> walkType t2)
             | SynType.MeasurePower(t, _, _) -> walkType t
@@ -727,6 +729,7 @@ module ParsedInput =
             | SynType.StaticConstantExpr(e, _) -> walkExpr e
             | SynType.StaticConstantNamed(ident, value, _) -> List.tryPick walkType [ ident; value ]
             | SynType.Intersection(types = types) -> List.tryPick walkType types
+            | SynType.StaticConstantNull _
             | SynType.Anon _
             | SynType.AnonRecd _
             | SynType.LongIdent _
@@ -919,7 +922,7 @@ module ParsedInput =
                 walkType t
                 |> Option.orElseWith (fun () -> members |> Option.bind (List.tryPick walkMember))
 
-            | SynMemberDefn.Inherit(t, _, _) -> walkType t
+            | SynMemberDefn.Inherit(baseType = t) -> walkType t
 
             | SynMemberDefn.ValField(fieldInfo = field) -> walkField field
 
@@ -1900,7 +1903,7 @@ module ParsedInput =
                             None
 
                     // module Namespace.Top
-                    // module Neste|
+                    // module Nested
                     | SynModuleDecl.NestedModule(moduleInfo = SynComponentInfo(longId = [ ident ])) when rangeContainsPos ident.idRange pos ->
                         Some CompletionContext.Invalid
 
@@ -2060,6 +2063,7 @@ module ParsedInput =
             | SynTypeConstraint.WhereTyparIsReferenceType(t, _)
             | SynTypeConstraint.WhereTyparIsUnmanaged(t, _)
             | SynTypeConstraint.WhereTyparSupportsNull(t, _)
+            | SynTypeConstraint.WhereTyparNotSupportsNull(genericName = t)
             | SynTypeConstraint.WhereTyparIsComparable(t, _)
             | SynTypeConstraint.WhereTyparIsEquatable(t, _) -> walkTypar t
             | SynTypeConstraint.WhereTyparDefaultsToType(t, ty, _)
@@ -2121,6 +2125,7 @@ module ParsedInput =
             | SynType.Array(_, t, _)
             | SynType.HashConstraint(t, _)
             | SynType.MeasurePower(t, _, _)
+            | SynType.WithNull(innerType = t)
             | SynType.Paren(t, _)
             | SynType.SignatureParameter(usedType = t) -> walkType t
             | SynType.Fun(argType = t1; returnType = t2)
@@ -2141,6 +2146,7 @@ module ParsedInput =
                 walkType ident
                 walkType value
             | SynType.Intersection(types = types) -> List.iter walkType types
+            | SynType.StaticConstantNull _
             | SynType.Anon _
             | SynType.AnonRecd _
             | SynType.Var _
@@ -2383,7 +2389,7 @@ module ParsedInput =
             | SynMemberDefn.Interface(interfaceType = t; members = members) ->
                 walkType t
                 members |> Option.iter (List.iter walkMember)
-            | SynMemberDefn.Inherit(t, _, _) -> walkType t
+            | SynMemberDefn.Inherit(baseType = t) -> walkType t
             | SynMemberDefn.ValField(fieldInfo = field) -> walkField field
             | SynMemberDefn.NestedType(tdef, _, _) -> walkTypeDefn tdef
             | SynMemberDefn.AutoProperty(attributes = Attributes attrs; typeOpt = t; synExpr = e) ->

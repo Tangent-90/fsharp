@@ -26,6 +26,7 @@ usage()
   echo "  --testcoreclr                  Run unit tests on .NET Core (short: --test, -t)"
   echo "  --testCompilerComponentTests   Run FSharp.Compiler.ComponentTests on .NET Core"
   echo "  --testBenchmarks               Build and Run Benchmark suite"
+  echo "  --testScripting                Run FSharp.Private.ScriptingTests on .NET Core"
   echo ""
   echo "Advanced settings:"
   echo "  --ci                           Building in CI"
@@ -60,6 +61,7 @@ publish=false
 test_core_clr=false
 test_compilercomponent_tests=false
 test_benchmarks=false
+test_scripting=false
 configuration="Debug"
 verbosity='minimal'
 binary_log=false
@@ -69,13 +71,13 @@ skip_analyzers=false
 skip_build=false
 prepare_machine=false
 source_build=false
-buildnorealsig=false
+buildnorealsig=true
 properties=""
 
 docker=false
 args=""
 
-tfm="net8.0" # This needs to be changed every time it's bumped by arcade/us.
+tfm="net9.0" # This needs to be changed every time it's bumped by arcade/us.
 
 BuildCategory=""
 BuildMessage=""
@@ -135,6 +137,9 @@ while [[ $# > 0 ]]; do
       ;;
       --testbenchmarks)
       test_benchmarks=true
+      ;;
+    --testscripting)
+      test_scripting=true
       ;;
     --ci)
       ci=true
@@ -209,7 +214,7 @@ function Test() {
   projectname=$(basename -- "$testproject")
   projectname="${projectname%.*}"
   testlogpath="$artifacts_dir/TestResults/$configuration/${projectname}_$targetframework.xml"
-  args="test \"$testproject\" --no-restore --no-build -c $configuration -f $targetframework --test-adapter-path . --logger \"nunit;LogFilePath=$testlogpath\" --blame --results-directory $artifacts_dir/TestResults/$configuration"
+  args="test \"$testproject\" --no-restore --no-build -c $configuration -f $targetframework --test-adapter-path . --logger \"xunit;LogFilePath=$testlogpath\" --blame --results-directory $artifacts_dir/TestResults/$configuration -p:vstestusemsbuildoutput=false"
   "$DOTNET_INSTALL_DIR/dotnet" $args || exit $?
 }
 
@@ -235,6 +240,11 @@ function BuildSolution {
   UNAME="$(uname)"
   if [[ "$UNAME" == "Darwin" ]]; then
     enable_analyzers=false
+  fi
+  
+  local source_build_args=""
+  if [[ "$source_build" == true ]]; then
+    source_build_args="/p:DotNetBuildRepo=true /p:DotNetBuildSourceOnly=true"
   fi
 
   # NuGet often exceeds the limit of open files on Mac and Linux
@@ -269,7 +279,7 @@ function BuildSolution {
     fi
 
     BuildMessage="Error building tools"
-    local args=" publish $repo_root/proto.proj $blrestore $bltools /p:Configuration=Proto /p:ArcadeBuildFromSource=$source_build $properties"
+    local args=" publish $repo_root/proto.proj $blrestore $bltools /p:Configuration=Proto $source_build_args $properties"
     echo $args
     "$DOTNET_INSTALL_DIR/dotnet" $args  #$args || exit $?
   fi
@@ -291,8 +301,8 @@ function BuildSolution {
       /p:ContinuousIntegrationBuild=$ci \
       /p:QuietRestore=$quiet_restore \
       /p:QuietRestoreBinaryLog="$binary_log" \
-      /p:ArcadeBuildFromSource=$source_build \
       /p:BuildNoRealsig=$buildnorealsig \
+      $source_build_args \
       $properties
   fi
 }
@@ -330,6 +340,11 @@ if [[ "$test_benchmarks" == true ]]; then
   pushd "$repo_root/tests/benchmarks"
   ./SmokeTestBenchmarks.sh
   popd
+fi
+
+if [[ "$test_scripting" == true ]]; then
+  coreclrtestframework=$tfm
+  Test --testproject "$repo_root/tests/FSharp.Compiler.Private.Scripting.UnitTests/FSharp.Compiler.Private.Scripting.UnitTests.fsproj" --targetframework $coreclrtestframework
 fi
 
 ExitWithExitCode 0
