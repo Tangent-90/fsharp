@@ -14,7 +14,7 @@ open FSharp.Compiler.Text
 open FSharp.Compiler.Text.Range
 
 module SourceFileImpl =
-    let IsSignatureFile file =
+    let IsSignatureFile (file: string) =
         let ext = Path.GetExtension file
         0 = String.Compare(".fsi", ext, StringComparison.OrdinalIgnoreCase)
 
@@ -573,12 +573,12 @@ type FSharpParseFileResults(diagnostics: FSharpDiagnostic[], input: ParsedInput,
                             yield! checkRange m
                             yield! walkExpr isControlFlow innerExpr
 
-                        | SynExpr.YieldOrReturn(_, e, m) ->
+                        | SynExpr.YieldOrReturn(_, e, m, _) ->
                             yield! checkRange m
                             yield! walkExpr false e
 
-                        | SynExpr.YieldOrReturnFrom(_, e, _)
-                        | SynExpr.DoBang(e, _) ->
+                        | SynExpr.YieldOrReturnFrom(_, e, _, _)
+                        | SynExpr.DoBang(expr = e) ->
                             yield! checkRange e.Range
                             yield! walkExpr false e
 
@@ -814,7 +814,7 @@ type FSharpParseFileResults(diagnostics: FSharpDiagnostic[], input: ParsedInput,
                         | SynMemberDefn.Interface(members = Some membs) ->
                             for m in membs do
                                 yield! walkMember m
-                        | SynMemberDefn.Inherit(_, _, m) ->
+                        | SynMemberDefn.Inherit(range = m) ->
                             // can break on the "inherit" clause
                             yield! checkRange m
                         | SynMemberDefn.ImplicitInherit(_, arg, _, m) ->

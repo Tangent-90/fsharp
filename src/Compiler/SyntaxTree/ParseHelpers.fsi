@@ -67,7 +67,7 @@ type LexerIfdefStack = LexerIfdefStackEntries
 
 type LexerEndlineContinuation =
     | Token
-    | Skip of int * range: range
+    | IfdefSkip of int * range: range
 
 type LexerIfdefExpression =
     | IfdefAnd of LexerIfdefExpression * LexerIfdefExpression
@@ -272,7 +272,7 @@ val mkAutoPropDefn:
     typ: SynType option ->
     mEquals: range option ->
     expr: SynExpr ->
-    accessors: range option * (SynMemberKind * GetSetKeywords option) ->
+    accessors: range option * (SynMemberKind * GetSetKeywords option * SynAccess option * SynAccess option) ->
         xmlDoc: PreXmlDoc ->
         attribs: SynAttributes ->
         flags: (SynMemberKind -> SynMemberFlags) * SynLeadingKeyword ->
